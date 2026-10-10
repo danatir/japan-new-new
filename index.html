@@ -153,6 +153,7 @@ var MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"
 function today(){try{return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Tokyo",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());}catch(e){return "2026-10-09";}}
 function dn(s){var p=s.split("-");return Math.round(Date.UTC(+p[0],+p[1]-1,+p[2])/86400000);}
 function iso(n){return new Date(n*86400000).toISOString().slice(0,10);}
+function tokyoHour(){try{return +new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Tokyo",hour:"2-digit",hourCycle:"h23"}).format(new Date());}catch(e){return 12;}}
 var TODAY=today(),T0=dn(TODAY);
 function parts(s){var p=s.split("-"),d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]));return {dow:DOW[d.getUTCDay()],d:+p[2],m:MON[+p[1]-1],ml:MONL[+p[1]-1],y:+p[0]};}
 function fd(s,w){var q=parts(s);return (w?q.dow+" ":"")+q.m+" "+q.d+(q.y!==parts(TODAY).y?" "+q.y:"");}
@@ -238,21 +239,22 @@ function allBucket(r){
 var live=ITEMS.filter(function(r){return r.kind==="dated"||r.kind==="open";});
 function isOpenOn(r,D){return (!r.s||r.s<=D)&&(!r.e||r.e>=D);}
 function dayGroups(D){
-  var Dn=dn(D),g={},order=["last","soon","two","long","noend","later"];
+  var Dn=dn(D),g={},order=["last","soon","two","long","noend","later","over"];
   var defs={last:{title:"Last day is "+fd(D,1),sub:"ends this day, including one-day events",cls:"hot"},
     soon:{title:"Closing within 3 days after",sub:"ends "+fd(iso(Dn+1),1)+" to "+fd(iso(Dn+3),1),cls:"hot"},
     two:{title:"Closing within 2 weeks",sub:"ends "+fd(iso(Dn+4),1)+" to "+fd(iso(Dn+14),1),cls:"soon"},
     long:{title:"Open for longer",sub:"ends "+fd(iso(Dn+15),1)+" or later",cls:""},
     noend:{title:"Out now, no end date announced",sub:"drops and shops; check the page for stock",cls:""},
+    over:{title:"Already over by "+fd(D,1),sub:"ended before this day",cls:""},
     later:{title:"Not open yet on "+fd(D,1),sub:"these start after this day",cls:""}};
   live.forEach(function(r){
     var k;
-    if(!isOpenOn(r,D)){if(r.s&&r.s>D)(g.later=g.later||[]).push(r);return;}
+    if(!isOpenOn(r,D)){if(r.s&&r.s>D)(g.later=g.later||[]).push(r);else(g.over=g.over||[]).push(r);return;}
     if(!r.e)k="noend";else{var d=dn(r.e)-Dn;k=d<=0?"last":d<=3?"soon":d<=14?"two":"long";}
     (g[k]=g[k]||[]).push(r);
   });
   return order.filter(function(k){return g[k];}).map(function(k){
-    if(k==="later"){g[k].sort(function(a,b){return a.s<b.s?-1:a.s>b.s?1:a.t<b.t?-1:1;});}else
+    if(k==="over"){g[k].sort(function(a,b){return a.e<b.e?1:-1;});}else if(k==="later"){g[k].sort(function(a,b){return a.s<b.s?-1:a.s>b.s?1:a.t<b.t?-1:1;});}else
     g[k].sort(function(a,b){return (a.e||"9999")<(b.e||"9999")?-1:(a.e||"9999")>(b.e||"9999")?1:a.t<b.t?-1:1;});
     return {id:"g-"+k,title:defs[k].title,sub:defs[k].sub,cls:defs[k].cls,items:g[k]};});
 }
@@ -277,7 +279,7 @@ function tail(){
 var ended=ITEMS.filter(function(r){return r.kind==="ended";}).sort(function(a,b){return a.e<b.e?1:-1;});
 
 // ---------- state + UI
-var mode="day",D=iso(T0+1),cur="all",root=document.getElementById("groups"),jump=document.getElementById("jump"),daysEl=document.getElementById("days"),modeEl=document.getElementById("mode"),catf=document.getElementById("catf"),q=document.getElementById("q");
+var mode="day",D=iso(T0+(tokyoHour()>=18?1:0)),cur="all",root=document.getElementById("groups"),jump=document.getElementById("jump"),daysEl=document.getElementById("days"),modeEl=document.getElementById("mode"),catf=document.getElementById("catf"),q=document.getElementById("q");
 var secs=[],det=null;
 
 function mkMode(){
@@ -289,8 +291,8 @@ function mkMode(){
 function mkDays(){
   daysEl.textContent="";daysEl.hidden=mode!=="day";if(mode!=="day")return;
   daysEl.appendChild(el("span","lab","Open on:"));
-  for(var i=1;i<=7;i++){(function(i){var d=iso(T0+i),p=parts(d);
-    var b=el("button","",(i===1?"Tomorrow ":"")+p.dow+" "+p.d);b.type="button";b.setAttribute("aria-pressed",d===D?"true":"false");
+  for(var i=0;i<=6;i++){(function(i){var d=iso(T0+i),p=parts(d);
+    var b=el("button","",(i===0?"Today ":i===1?"Tomorrow ":"")+p.dow+" "+p.d);b.type="button";b.setAttribute("aria-pressed",d===D?"true":"false");
     b.addEventListener("click",function(){D=d;mkDays();layout();});daysEl.appendChild(b);})(i);}
   var inp=el("input");inp.type="date";inp.min=iso(T0);inp.value=D;inp.setAttribute("aria-label","Pick any date");
   inp.addEventListener("change",function(){if(inp.value&&inp.value>=iso(T0)){D=inp.value;mkDays();layout();}});daysEl.appendChild(inp);
